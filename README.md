@@ -13,7 +13,6 @@ AI can generate a thin Pi wrapper quickly. The value of this package is not the 
 - **Lifecycle ownership** for sessions, cancellation, cleanup, shared model state, and one-shot agents.
 - **Observability hooks** through session events, named agents, run results, and duration metadata, with runtime-level event routing for multi-agent applications.
 - **Explicit capabilities**: tools and skills must be deliberately granted rather than discovered implicitly.
-- **One place to maintain Pi compatibility** instead of regenerating and independently maintaining the same wrapper in every application.
 - **An incremental escape hatch** through the underlying Pi session when an application needs lower-level control.
 
 If all you need is a few lines around `createAgentSession`, using Pi directly may be the better choice. This library is intended for applications that want consistent isolation, lifecycle behavior, observability hooks, and conventions across one or more agents without adopting a larger framework.

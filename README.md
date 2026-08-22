@@ -1,0 +1,134 @@
+# pi-agent-lib
+
+A deliberately small library that makes the [Pi SDK](https://pi.dev) easy to use for application agents.
+
+It is not a new agent framework. Pi remains the engine; this package provides a small, opinionated application boundary around it.
+
+## Why this exists
+
+AI can generate a thin Pi wrapper quickly. The value of this package is not the amount of code it replaces; it is the shared contract and maintained set of decisions it provides:
+
+- **A stable application API** so agent code is not coupled directly to session setup details.
+- **Safe, reproducible defaults** that do not implicitly load extensions, skills, prompts, themes, or context from the host machine or repository.
+- **Lifecycle ownership** for sessions, cancellation, cleanup, shared model state, and one-shot agents.
+- **Observability hooks** through session events, named agents, run results, and duration metadata, with runtime-level event routing for multi-agent applications.
+- **Explicit capabilities**: tools and skills must be deliberately granted rather than discovered implicitly.
+- **One place to maintain Pi compatibility** instead of regenerating and independently maintaining the same wrapper in every application.
+- **An incremental escape hatch** through the underlying Pi session when an application needs lower-level control.
+
+If all you need is a few lines around `createAgentSession`, using Pi directly may be the better choice. This library is intended for applications that want consistent isolation, lifecycle behavior, observability hooks, and conventions across one or more agents without adopting a larger framework.
+
+The package deliberately stays small. Its goal is not to hide Pi or accumulate orchestration features prematurely, but to turn recurring application-level decisions into a tested, documented interface.
+
+## Install
+
+```bash
+npm install @haseebeqx/pi-agent-lib
+```
+
+## Create an agent
+
+```ts
+import { agent, defineTool } from "@haseebeqx/pi-agent-lib";
+import { Type } from "typebox";
+
+const lookup = defineTool({
+  name: "lookup",
+  label: "Lookup",
+  description: "Look up a topic",
+  parameters: Type.Object({ topic: Type.String() }),
+  async execute(_id, { topic }) {
+    return {
+      content: [{ type: "text", text: `Information about ${topic}` }],
+      details: {},
+    };
+  },
+});
+
+const researcher = await agent({
+  name: "researcher",
+  instructions: "Research the user's topic and report evidence clearly.",
+  tools: [lookup],
+});
+
+try {
+  const result = await researcher.run("Research SQLite WAL mode");
+  console.log(result.text);
+} finally {
+  researcher.dispose();
+}
+```
+
+Pi selects the first authenticated model unless `model` or `modelId` is supplied.
+
+## Coding agents
+
+Built-in tools are explicit; none are enabled by default:
+
+```ts
+const coder = await agent({
+  instructions: "Make the requested code change and run focused tests.",
+  cwd: process.cwd(),
+  coreTools: ["read", "edit", "write", "bash"],
+  modelId: "openai/gpt-5.4",
+  thinking: "high",
+});
+```
+
+## Several agents
+
+Use an agent runtime to share model setup, defaults, events, cancellation, and cleanup:
+
+```ts
+import { createAgentRuntime } from "@haseebeqx/pi-agent-lib";
+
+const agents = await createAgentRuntime({
+  modelId: "openai/gpt-5.4",
+  thinking: "high",
+  onEvent(name, event) {
+    console.log(name, event.type);
+  },
+});
+
+try {
+  const plan = await agents.run({
+    name: "planner",
+    instructions: "Create a plan.",
+  }, "Plan the requested change");
+
+  const worker = await agents.agent({
+    name: "worker",
+    instructions: "Execute the supplied plan.",
+    coreTools: ["read", "edit", "write", "bash"],
+  });
+  await worker.prompt(plan.text);
+} finally {
+  agents.dispose();
+}
+```
+
+`agents.run()` is for one-shot work. `agents.agent()` creates a reusable session.
+
+## Safe resource defaults
+
+Agents are isolated by default. The library does not discover global or repository-local Pi extensions, prompts, themes, context files, or skills. Explicit Pi skills can be passed with `skills`.
+
+This matters when an agent operates on an untrusted repository.
+
+## Existing Pi applications
+
+`PiAgent` intentionally provides `prompt()`, `subscribe()`, `abort()`, and `dispose()` so existing Pi SDK code can adopt the library incrementally. The underlying session remains available as `agent.session` as an escape hatch.
+
+## Scope
+
+The first version focuses only on:
+
+- isolated agent creation
+- explicit tools and skills
+- shared model runtime
+- model selection
+- event subscription
+- useful run results
+- shared multi-agent defaults and cleanup
+
+Deployment, TUI integration, multi-agent supervision, and an evaluation framework should be added only after real applications demonstrate a repeated need.

@@ -9,7 +9,7 @@ It is not a new agent framework. Pi remains the engine; this package provides a 
 AI can generate a thin Pi wrapper quickly. The value of this package is not the amount of code it replaces; it is the shared contract and maintained set of decisions it provides:
 
 - **A stable application API** so agent code is not coupled directly to session setup details.
-- **Safe, reproducible defaults** that do not implicitly load extensions, skills, prompts, themes, or context from the host machine or repository.
+- **Two deliberate operating modes**: isolated application agents and full Pi coding agents with normal resources and settings.
 - **Lifecycle ownership** for sessions, cancellation, cleanup, shared model state, and one-shot agents.
 - **Observability hooks** through session events, named agents, run results, and duration metadata, with runtime-level event routing for multi-agent applications.
 - **Explicit capabilities**: tools and skills must be deliberately granted rather than discovered implicitly.
@@ -62,17 +62,31 @@ Pi selects the first authenticated model unless `model` or `modelId` is supplied
 
 ## Coding agents
 
-Built-in tools are explicit; none are enabled by default:
+`codingAgent()` provides normal Pi coding-agent behavior programmatically. It loads Pi's global and project settings, extensions, skills, prompt templates, and `AGENTS.md` context; uses the standard coding prompt and tools; and appends your instructions to that prompt.
 
 ```ts
-const coder = await agent({
+import { codingAgent } from "@haseebeqx/pi-agent-lib";
+
+const coder = await codingAgent({
   instructions: "Make the requested code change and run focused tests.",
   cwd: process.cwd(),
-  coreTools: ["read", "edit", "write", "bash"],
   modelId: "openai/gpt-5.4",
   thinking: "high",
 });
 ```
+
+Custom application tools are added alongside Pi's built-in and extension tools:
+
+```ts
+const coder = await codingAgent({
+  cwd: process.cwd(),
+  instructions: "Finish by submitting the structured report.",
+  tools: [submitReport],
+  excludeTools: ["bash"],
+});
+```
+
+Use `resources` to add resource paths or disable individual discovery categories. Advanced applications can inject `resourceLoader`, `settingsManager`, and `sessionManager` directly.
 
 ## Several agents
 
@@ -108,11 +122,21 @@ try {
 
 `agents.run()` is for one-shot work. `agents.agent()` creates a reusable session.
 
-## Safe resource defaults
+## Isolated application agents
 
-Agents are isolated by default. The library does not discover global or repository-local Pi extensions, prompts, themes, context files, or skills. Explicit Pi skills can be passed with `skills`.
+`agent()` remains isolated by default for backward compatibility. It does not discover global or repository-local Pi resources, and built-in tools remain explicit. `isolatedAgent()` is the descriptive alias:
 
-This matters when an agent operates on an untrusted repository.
+```ts
+import { isolatedAgent } from "@haseebeqx/pi-agent-lib";
+
+const researcher = await isolatedAgent({
+  instructions: "Research the supplied topic.",
+  coreTools: ["read"],
+  skills: [researchSkill],
+});
+```
+
+You can also select behavior with `mode: "coding" | "isolated"`.
 
 ## Existing Pi applications
 
@@ -120,14 +144,14 @@ This matters when an agent operates on an untrusted repository.
 
 ## Scope
 
-The first version focuses only on:
+The library focuses on:
 
-- isolated agent creation
-- explicit tools and skills
-- shared model runtime
-- model selection
-- event subscription
-- useful run results
+- isolated application agents and full Pi coding agents
+- normal Pi resource discovery with application instructions appended
+- custom resource, settings, and session manager injection
+- explicit and extension-provided tools and skills
+- shared model runtime and model selection
+- event subscription and useful run results
 - shared multi-agent defaults and cleanup
 
 Deployment, TUI integration, multi-agent supervision, and an evaluation framework should be added only after real applications demonstrate a repeated need.

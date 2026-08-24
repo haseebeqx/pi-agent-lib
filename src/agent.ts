@@ -8,10 +8,10 @@ import {
   type PromptOptions,
 } from "@earendil-works/pi-coding-agent";
 import { resolveModel } from "./model.js";
-import { isolatedResourceLoader } from "./resource-loader.js";
+import { codingResourceLoader, isolatedResourceLoader } from "./resource-loader.js";
 import type { AgentOptions, RunResult } from "./types.js";
 
-/** A small lifecycle-safe wrapper around one isolated Pi AgentSession. */
+/** A small lifecycle-safe wrapper around one Pi AgentSession. */
 export class PiAgent {
   readonly name: string;
   readonly session: AgentSession;
@@ -68,21 +68,40 @@ export async function createAgent(options: AgentOptions): Promise<PiAgent> {
   const runtime = options.runtime ?? await ModelRuntime.create();
   const model = options.model ?? resolveModel(runtime, options.modelId);
   const customTools = options.tools ?? [];
-  const coreTools = options.coreTools ?? [];
-  const resourceLoader = isolatedResourceLoader(options.instructions, options.skills);
+  const mode = options.mode ?? "isolated";
+  const settingsManager = options.settingsManager ?? (mode === "coding"
+    ? SettingsManager.create(cwd, options.agentDir)
+    : SettingsManager.inMemory());
+  if (options.retries !== undefined || mode === "isolated") {
+    const retries = options.retries ?? 3;
+    settingsManager.applyOverrides({ retry: { enabled: retries > 0, maxRetries: retries } });
+  }
+  const resourceLoader = options.resourceLoader ?? (mode === "coding"
+    ? await codingResourceLoader({
+        cwd,
+        instructions: options.instructions,
+        agentDir: options.agentDir,
+        settingsManager,
+        resources: options.resources,
+        skills: options.skills,
+      })
+    : isolatedResourceLoader(options.instructions, options.skills));
+  const selectedTools = options.coreTools === undefined && mode === "coding"
+    ? undefined
+    : [...(options.coreTools ?? []), ...customTools.map(tool => tool.name)];
 
   const { session } = await createAgentSession({
     cwd,
+    agentDir: options.agentDir,
     modelRuntime: runtime,
     model,
-    thinkingLevel: options.thinking ?? "medium",
+    thinkingLevel: options.thinking ?? (mode === "isolated" ? "medium" : undefined),
     resourceLoader,
-    tools: [...coreTools, ...customTools.map(tool => tool.name)] as any,
+    tools: selectedTools as any,
+    excludeTools: options.excludeTools,
     customTools,
-    sessionManager: SessionManager.inMemory(cwd),
-    settingsManager: SettingsManager.inMemory({
-      retry: { enabled: (options.retries ?? 3) > 0, maxRetries: options.retries ?? 3 },
-    }),
+    sessionManager: options.sessionManager ?? SessionManager.inMemory(cwd),
+    settingsManager,
   });
 
   if (options.onEvent) session.subscribe(options.onEvent);
@@ -91,6 +110,16 @@ export async function createAgent(options: AgentOptions): Promise<PiAgent> {
 
 /** Short alias for createAgent(). */
 export const agent = createAgent;
+
+/** Create an agent with normal Pi coding resources, settings, prompt, and tool defaults. */
+export function codingAgent(options: AgentOptions): Promise<PiAgent> {
+  return createAgent({ ...options, mode: "coding" });
+}
+
+/** Create an agent with only explicitly supplied instructions, skills, and tools. */
+export function isolatedAgent(options: AgentOptions): Promise<PiAgent> {
+  return createAgent({ ...options, mode: "isolated" });
+}
 
 function lastAssistantText(messages: readonly any[]): string {
   const message = [...messages].reverse().find(item => item?.role === "assistant");

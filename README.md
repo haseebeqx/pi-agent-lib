@@ -122,6 +122,55 @@ try {
 
 `agents.run()` is for one-shot work. `agents.agent()` creates a reusable session.
 
+## Test and validate agents
+
+`runAgentEvals()` runs black-box cases against a fresh agent each time, captures Pi tool/turn/retry traces, and separates agent failures from validation failures. Repeated runs and pass-rate thresholds make nondeterministic behavior explicit instead of hiding it in a single green run.
+
+```ts
+import {
+  agentValidator,
+  assertAgentEvals,
+  codingAgent,
+  noToolErrors,
+  runAgentEvals,
+  toolCalled,
+} from "@haseebeqx/pi-agent-lib";
+import { access } from "node:fs/promises";
+
+const report = await runAgentEvals({
+  name: "fixer smoke tests",
+  runs: 3,
+  minimumPassRate: 2 / 3,
+  timeoutMs: 10 * 60_000,
+  createAgent: ({ runIndex }) => codingAgent({
+    cwd: fixtureDirectories[runIndex], // prepare one isolated fixture per run
+    instructions: "Make the requested change and verify it.",
+  }),
+  cases: [{
+    name: "writes the required report",
+    prompt: "Diagnose the fixture and write report.json.",
+    validators: [
+      toolCalled("read"),
+      noToolErrors(),
+      agentValidator("report exists", async ({ runIndex }) => {
+        try {
+          await access(`${fixtureDirectories[runIndex]}/report.json`);
+          return true;
+        } catch {
+          return "report.json was not created";
+        }
+      }),
+    ],
+  }],
+});
+
+assertAgentEvals(report); // throws a CI-friendly summary when the threshold fails
+```
+
+Validators receive the final `RunResult` and an `AgentRunTrace`, so applications can check output, tool arguments/results, artifacts, test commands, profiler evidence, or domain-specific mechanical gates. Built-ins include `outputIncludes`, `outputMatches`, `toolCalled`, `noToolErrors`, and `durationAtMost`. Validator exceptions are recorded as failed checks rather than losing the rest of the report. `PiAgent` satisfies the small `AgentEvalTarget` contract directly; larger application pipelines can expose the same `run`/optional lifecycle interface. Set `concurrency` only when cases use independent fixtures; the fixture-safe default is one.
+
+This layer deliberately does not force an LLM judge or a sandbox vendor. A validator may call a judge model when semantic grading is appropriate, while deterministic tests and application-owned isolation remain first-class.
+
 ## Isolated application agents
 
 `agent()` remains isolated by default for backward compatibility. It does not discover global or repository-local Pi resources, and built-in tools remain explicit. `isolatedAgent()` is the descriptive alias:
@@ -154,4 +203,4 @@ The library focuses on:
 - event subscription and useful run results
 - shared multi-agent defaults and cleanup
 
-Deployment, TUI integration, multi-agent supervision, and an evaluation framework should be added only after real applications demonstrate a repeated need.
+Deployment, TUI integration, and multi-agent supervision remain outside the package until real applications demonstrate a repeated need. The evaluation API stays intentionally runner-agnostic: sandbox and fixture ownership belong to the application.

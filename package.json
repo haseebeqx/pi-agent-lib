@@ -38,10 +38,11 @@
   "publishConfig": {
     "access": "public"
   },
-  "dependencies": {
-    "@earendil-works/pi-coding-agent": "^0.84.2"
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.99.1"
   },
   "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.99.1",
     "@types/node": "^24.0.0",
     "tsx": "^4.20.0",
     "typescript": "^5.8.0"

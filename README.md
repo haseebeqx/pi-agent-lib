@@ -22,8 +22,11 @@ The package deliberately stays small. Its goal is not to hide Pi or accumulate o
 ## Install
 
 ```bash
-npm install @haseebeqx/pi-agent-lib
+npm install @haseebeqx/pi-agent-lib @earendil-works/pi-coding-agent
 ```
+
+`@earendil-works/pi-coding-agent` is a peer dependency (requires `>=0.99.1`), so you control which
+Pi version you run against — npm installs it automatically if it is not already in your project.
 
 ## Create an agent
 

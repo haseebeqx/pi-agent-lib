@@ -91,6 +91,66 @@ const coder = await codingAgent({
 
 Use `resources` to add resource paths or disable individual discovery categories. Advanced applications can inject `resourceLoader`, `settingsManager`, and `sessionManager` directly.
 
+## Durable agents (experimental)
+
+Use the optional `@haseebeqx/pi-agent-lib/durable` entry point for
+[`@earendil-works/pi-durable`](https://www.npmjs.com/package/@earendil-works/pi-durable)
+conversations that survive process restarts. The normal entry point does not load these dependencies.
+The adapter currently targets exactly version `1.0.2` because the upstream API is experimental;
+it requires Node.js `>=22.19.0`.
+
+```bash
+npm install @earendil-works/pi-durable@1.0.2 @earendil-works/pi-ai@1.0.2 @earendil-works/chord@1.0.2
+```
+
+```ts
+import { durableAgent } from "@haseebeqx/pi-agent-lib/durable";
+import { createModels } from "@earendil-works/pi-ai/models";
+import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
+import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
+
+const models = createModels();
+models.setProvider(openaiProvider()); // OPENAI_API_KEY
+const researcher = await durableAgent({
+  name: "researcher",
+  storage: await openNodeSqliteStorage("./research.sqlite"),
+  models,
+  agent: {
+    model: { provider: "openai", modelId: "gpt-5.4" },
+    instructions: "Research the user's topic and report evidence clearly.",
+  },
+});
+
+try {
+  const result = await researcher.run("Research SQLite WAL mode", {
+    requestId: "research-sqlite-1", // retrying this ID reuses the durable submission
+  });
+  console.log(result.text);
+} finally {
+  await researcher.dispose();
+}
+```
+
+Reopening the same storage preserves the root conversation and its configuration, and resumes
+unfinished work by default (`resume: false` disables automatic resume on open). `agent` supplies
+initial configuration only; use `researcher.conversation.configure()` to change an existing agent.
+Reinstall the same registry extensions and supply models on every open. One process must own a
+storage at a time. The agent owns its harness and storage; always await `close()` or `dispose()`.
+Closing preserves pending work; `abort()` explicitly stops it.
+
+`submit()` returns a native durable submission for admission without waiting. `run()` waits for
+that submission's answer and returns its text, answer messages, duration, and durable receipt.
+An unanswered input throws `DurableRunError` with its receipt. Prompt options support `requestId`,
+`whenBusy`, and a Chord `context`; cancelling a wait does not abort already admitted work.
+
+This is a separate API, not an `AgentSession` or `SessionManager` adapter. Use native durable
+`registry`, `settings`, and `env` options for tools and execution environments, and
+`watchEvents()` for native durable events (stop the returned stream when finished).
+Pi session tools, skills, resource discovery, and `AgentSessionEvent` callbacks are not translated.
+The `harness` and `conversation` handles remain available for advanced control.
+Supply pi-ai 1.0.2 models (or a compatible current Pi model runtime); the older 0.99.1 runtime
+used by existing session agents is not compatible with the durable model interface.
+
 ## Several agents
 
 Use an agent runtime to share model setup, defaults, events, cancellation, and cleanup:

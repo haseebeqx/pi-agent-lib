@@ -18,6 +18,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./durable": {
+      "types": "./dist/durable.d.ts",
+      "import": "./dist/durable.js"
     }
   },
   "files": [
@@ -39,10 +43,18 @@
     "access": "public"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.99.1"
+    "@earendil-works/pi-coding-agent": ">=0.99.1",
+    "@earendil-works/pi-durable": "1.0.2",
+    "@earendil-works/chord": "1.0.2"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-durable": { "optional": true },
+    "@earendil-works/chord": { "optional": true }
   },
   "devDependencies": {
+    "@earendil-works/chord": "1.0.2",
     "@earendil-works/pi-coding-agent": "^0.99.1",
+    "@earendil-works/pi-durable": "1.0.2",
     "@types/node": "^24.0.0",
     "tsx": "^4.20.0",
     "typescript": "^5.8.0"

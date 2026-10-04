@@ -1,6 +1,6 @@
 {
   "name": "@haseebeqx/pi-agent-lib",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "A small, library-first API for building agents with Pi",
   "license": "MIT",
   "repository": {
@@ -48,8 +48,12 @@
     "@earendil-works/chord": "1.0.2"
   },
   "peerDependenciesMeta": {
-    "@earendil-works/pi-durable": { "optional": true },
-    "@earendil-works/chord": { "optional": true }
+    "@earendil-works/pi-durable": {
+      "optional": true
+    },
+    "@earendil-works/chord": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@earendil-works/chord": "1.0.2",

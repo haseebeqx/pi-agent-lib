@@ -1,0 +1,26 @@
+name: Test
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  latest-durable:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: npm ci
+      # Resolve latest explicitly: npm ci alone only tests the locked versions.
+      - name: Install latest durable dependencies
+        run: npm install --no-save --package-lock=false @earendil-works/pi-durable@latest @earendil-works/chord@latest
+      - run: npm test

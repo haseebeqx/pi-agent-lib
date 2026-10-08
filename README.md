@@ -96,11 +96,11 @@ Use `resources` to add resource paths or disable individual discovery categories
 Use the optional `@haseebeqx/pi-agent-lib/durable` entry point for
 [`@earendil-works/pi-durable`](https://www.npmjs.com/package/@earendil-works/pi-durable)
 conversations that survive process restarts. The normal entry point does not load these dependencies.
-The adapter currently targets exactly version `1.0.2` because the upstream API is experimental;
+The adapter supports versions `>1.0.0` and is tested against the latest durable dependencies;
 it requires Node.js `>=22.19.0`.
 
 ```bash
-npm install @earendil-works/pi-durable@1.0.2 @earendil-works/pi-ai@1.0.2 @earendil-works/chord@1.0.2
+npm install @earendil-works/pi-durable@latest @earendil-works/pi-ai@latest @earendil-works/chord@latest
 ```
 
 ```ts
@@ -148,7 +148,7 @@ This is a separate API, not an `AgentSession` or `SessionManager` adapter. Use n
 `watchEvents()` for native durable events (stop the returned stream when finished).
 Pi session tools, skills, resource discovery, and `AgentSessionEvent` callbacks are not translated.
 The `harness` and `conversation` handles remain available for advanced control.
-Supply pi-ai 1.0.2 models (or a compatible current Pi model runtime); the older 0.99.1 runtime
+Supply models from the current pi-ai runtime; the older 0.99.1 runtime
 used by existing session agents is not compatible with the durable model interface.
 
 ## Several agents

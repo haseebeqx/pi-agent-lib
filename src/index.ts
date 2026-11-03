@@ -1,5 +1,14 @@
-export { createAgent, agent, codingAgent, isolatedAgent, PiAgent } from "./agent.js";
-export { createModelRuntime, resolveModel } from "./model.js";
+export { createAgent, agent, codingAgent, isolatedAgent, modelLabel, PiAgent } from "./agent.js";
+export { checkModel, createModelRuntime, resolveModel, sharedModelRuntime } from "./model.js";
+export type { ModelCheck } from "./model.js";
+export { OutputError, RunAbortedError, RunFailedError } from "./errors.js";
+export type { RunAbortReason } from "./errors.js";
+export { outputTool, runForOutput } from "./output.js";
+export type { OutputRunOptions, OutputRunResult, OutputRunTarget, OutputTool, OutputToolOptions } from "./output.js";
+export { clip, createTraceCollector, emptyTrace, formatEvent } from "./trace.js";
+export type { FormatEventOptions } from "./trace.js";
+export { ScriptedAgent, scriptedAgent } from "./testing.js";
+export type { ScriptContext, ScriptedAgentOptions, ScriptStep } from "./testing.js";
 export { AgentRuntime, createAgentRuntime } from "./runtime.js";
 export type { AgentRuntimeOptions, RuntimeAgentOptions } from "./runtime.js";
 export {
@@ -37,7 +46,12 @@ export type {
   IsolatedResources,
   ModelRuntime,
   PromptOptions,
+  RetryInfo,
+  RetryOptions,
+  RunLimits,
+  RunOptions,
   RunResult,
+  RunUsage,
   Skill,
   ThinkingLevel,
 } from "./types.js";

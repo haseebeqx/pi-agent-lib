@@ -1,7 +1,7 @@
 import { ModelRuntime, type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { createAgent, PiAgent } from "./agent.js";
 import { resolveModel } from "./model.js";
-import type { AgentOptions, RunResult, ThinkingLevel } from "./types.js";
+import type { AgentOptions, RunOptions, RunResult, ThinkingLevel } from "./types.js";
 
 export interface AgentRuntimeOptions {
   model?: any;
@@ -54,10 +54,10 @@ export class AgentRuntime {
   }
 
   /** Create, run, and dispose a one-shot agent. */
-  async run(options: RuntimeAgentOptions, prompt: string): Promise<RunResult> {
+  async run(options: RuntimeAgentOptions, prompt: string, runOptions?: RunOptions): Promise<RunResult> {
     const instance = await this.agent(options);
     try {
-      return await instance.run(prompt);
+      return await instance.run(prompt, runOptions);
     } finally {
       instance.dispose();
       this.agents.delete(instance);

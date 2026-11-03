@@ -8,6 +8,7 @@ import type {
   SettingsManager,
   Skill,
 } from "@earendil-works/pi-coding-agent";
+import type { AgentRunTrace } from "./trace.js";
 
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 export type CoreToolName = "read" | "bash" | "edit" | "write" | "grep" | "find" | "ls";
@@ -72,14 +73,86 @@ export interface AgentOptions {
   /** Provider/model selector, such as openai/gpt-5.4. */
   modelId?: string;
   thinking?: ThinkingLevel;
+  /** Pi's own automatic provider retries (short delays). See RunOptions.retry for longer application backoff. */
   retries?: number;
   onEvent?: (event: AgentSessionEvent) => void;
+  /** Receives one compact line per notable event (turns, tool calls, tool errors, provider retries). */
+  trace?: (line: string) => void;
+  /** Keep the last N session events so late subscribers can replay them with subscribe(listener, { replay: true }). */
+  eventBuffer?: number;
+}
+
+/** Per-attempt guards. Pi's agent loop has no turn cap, so a looping or stalled model must be stopped explicitly. */
+export interface RunLimits {
+  /** Abort before turn N+1 starts. */
+  maxTurns?: number;
+  /** Abort when tool call N+1 (any tool) starts. */
+  maxToolCalls?: number;
+  /** Abort when call N+1 of the named tool starts. */
+  maxToolCallsPerTool?: Record<string, number>;
+  /** Abort when the attempt has not finished within this many milliseconds. */
+  timeoutMs?: number;
+}
+
+export interface RetryInfo {
+  /** 1-based retry number about to happen. */
+  retry: number;
+  delayMs: number;
+  error: unknown;
+}
+
+/**
+ * Application-level backoff on top of Pi's own short provider retries. A retry
+ * re-sends the same prompt in the same session. Limit aborts (RunAbortedError)
+ * are never retried.
+ */
+export interface RetryOptions {
+  /** Wait before each retry; its length is the number of retries. */
+  delaysMs: readonly number[];
+  /** Return false to fail immediately. Default: every error except RunAbortedError. */
+  isRetryable?: (error: unknown) => boolean;
+  onRetry?: (info: RetryInfo) => void;
+  /** Test seam. Default setTimeout. */
+  sleep?: (ms: number) => Promise<void>;
+}
+
+export interface RunOptions extends PromptOptions, RunLimits {
+  /** Abort the run from outside. */
+  signal?: AbortSignal;
+  retry?: RetryOptions;
+  /**
+   * Throw RunFailedError when the final assistant turn ended with a provider
+   * error (after Pi's own retries). Default false: the run resolves with
+   * stopReason "error". Implied while retry is set, so errors can be retried.
+   */
+  throwOnError?: boolean;
+}
+
+export interface RunUsage {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  totalTokens: number;
+  costUsd: number;
 }
 
 export interface RunResult {
   text: string;
   messages: readonly unknown[];
   durationMs: number;
+  /** Turns, tool calls, and retries observed during the run (all attempts). */
+  trace?: AgentRunTrace;
+  /** Stop reason of the last assistant message, such as stop, error, or aborted. */
+  stopReason?: string;
+  /** Provider error of the last assistant message, when stopReason is error. */
+  errorMessage?: string;
+  /** Token and cost totals summed over the run's assistant messages. */
+  usage?: RunUsage;
+  /** provider/model-id of the session when the run finished. */
+  model?: string;
+  /** Number of attempts, including application-level retries. */
+  attempts?: number;
 }
 
 export type { AgentSessionEvent, ModelRuntime, PromptOptions, ResourceLoader, SessionManager, SettingsManager, Skill };

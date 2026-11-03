@@ -1,5 +1,8 @@
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import { createTraceCollector, emptyTrace, roundMs, type AgentRunTrace } from "./trace.js";
 import type { RunResult } from "./types.js";
+
+export type { AgentRunTrace, AgentToolCallTrace } from "./trace.js";
 
 /** Minimal structural contract; PiAgent satisfies it and applications may wrap a larger agent pipeline. */
 export interface AgentEvalTarget {
@@ -12,22 +15,6 @@ export interface AgentEvalTarget {
 export interface AgentEvalContext {
   caseName: string;
   runIndex: number;
-}
-
-export interface AgentToolCallTrace {
-  id: string;
-  name: string;
-  args: unknown;
-  result?: unknown;
-  isError: boolean;
-  durationMs?: number;
-}
-
-export interface AgentRunTrace {
-  eventCounts: Record<string, number>;
-  toolCalls: AgentToolCallTrace[];
-  turns: number;
-  retries: number;
 }
 
 export interface AgentValidationContext extends AgentEvalContext {
@@ -272,39 +259,11 @@ async function runWithTimeout(agent: AgentEvalTarget, prompt: string, timeoutMs?
   }
 }
 
-function createTraceCollector(trace: AgentRunTrace): (event: AgentSessionEvent) => void {
-  const starts = new Map<string, { name: string; args: unknown; started: number }>();
-  return event => {
-    trace.eventCounts[event.type] = (trace.eventCounts[event.type] ?? 0) + 1;
-    if (event.type === "turn_end") trace.turns += 1;
-    if (event.type === "auto_retry_start") trace.retries += 1;
-    if (event.type === "tool_execution_start") {
-      starts.set(event.toolCallId, { name: event.toolName, args: event.args, started: performance.now() });
-    }
-    if (event.type === "tool_execution_end") {
-      const start = starts.get(event.toolCallId);
-      trace.toolCalls.push({
-        id: event.toolCallId,
-        name: event.toolName,
-        args: start?.args,
-        result: event.result,
-        isError: event.isError,
-        durationMs: start ? roundMs(performance.now() - start.started) : undefined,
-      });
-      starts.delete(event.toolCallId);
-    }
-  };
-}
-
 function normalizeValidation(name: string, outcome: ValidationOutcome): AgentValidationReport {
   if (outcome === undefined || outcome === true) return { name, passed: true };
   if (outcome === false) return { name, passed: false };
   if (typeof outcome === "string") return { name, passed: false, message: outcome };
   return { name, ...outcome };
-}
-
-function emptyTrace(): AgentRunTrace {
-  return { eventCounts: {}, toolCalls: [], turns: 0, retries: 0 };
 }
 
 function validateOptions(options: AgentEvalOptions): void {
@@ -334,8 +293,4 @@ function rate(value: number, name: string): void {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function roundMs(value: number): number {
-  return Math.round(value * 100) / 100;
 }

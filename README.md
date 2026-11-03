@@ -185,6 +185,111 @@ try {
 
 `agents.run()` is for one-shot work. `agents.agent()` creates a reusable session.
 
+## Structured output
+
+Many application agents exist to produce one structured value. `outputTool()` creates the submit tool and the slot it fills; `runForOutput()` runs until the model submits a valid value:
+
+```ts
+import { isolatedAgent, outputTool } from "@haseebeqx/pi-agent-lib";
+
+const judgment = outputTool({
+  name: "submit_judgment",
+  parameters: judgmentJsonSchema,
+  validate: JudgmentSchema.parse, // throw to reject; a zod parse works directly
+});
+
+const judge = await isolatedAgent({ instructions, tools: [judgment.tool] });
+try {
+  const { output } = await judge.runForOutput(prompt, judgment, {
+    nudge: "Call submit_judgment exactly once.", // default names the tool
+    maxNudges: 1,      // default: two attempts total
+    maxOutputCalls: 3, // a model that keeps resubmitting is stopped
+    timeoutMs: 10 * 60_000,
+  });
+} finally {
+  judge.dispose();
+}
+```
+
+- A rejected value goes back to the model as a tool error with the validation message, so it can correct itself in the same run.
+- The first valid call gets a short "Recorded" reply; later calls get an explicit STOP reply, and the latest valid value wins.
+- An attempt without a valid value is followed by the nudge in the same session. A limit abort keeps a value already recorded.
+- Provider errors are not nudged: they propagate (after `retry`, when set). Exhausting the nudges throws `OutputError` with the attempt count, rejection messages, and the last trace.
+- One `outputTool()` belongs to one agent at a time; it is not safe to share across agents running concurrently.
+
+`runForOutput(agent, prompt, output, options)` is also exported as a function and works with anything exposing `run(text, options)`.
+
+## Run limits and retries
+
+Pi's agent loop has no turn cap, so a looping or stalled model would hang `run()`. Limits apply per attempt and stop the run with a typed `RunAbortedError` (`reason`: `max_turns`, `max_tool_calls`, `timeout`, or `signal`) carrying the partial result:
+
+```ts
+import { RunAbortedError } from "@haseebeqx/pi-agent-lib";
+
+const result = await agent.run(prompt, {
+  maxTurns: 25,
+  maxToolCalls: 50,
+  maxToolCallsPerTool: { web_search: 10 },
+  timeoutMs: 10 * 60_000,
+  signal: request.signal,
+  retry: {
+    delaysMs: [7_500, 15_000, 30_000, 60_000, 120_000],
+    isRetryable: error => !/401|403/.test(String(error)),
+    onRetry: ({ retry, delayMs, error }) => log(`retry ${retry} in ${delayMs}ms: ${error}`),
+  },
+});
+```
+
+`retry` is application-level backoff on top of Pi's own short provider retries (`retries`). It re-sends the same prompt in the same session after a thrown error or a turn that ended with a provider error; limit and signal aborts are never retried. Without `retry`, a provider-error stop resolves with `stopReason: "error"`; pass `throwOnError: true` to get a `RunFailedError` instead (implied while `retry` is set).
+
+## Run results
+
+`run()` returns more than text:
+
+| Field | Meaning |
+| --- | --- |
+| `text`, `messages`, `durationMs` | Final assistant text, the run's new messages, wall time |
+| `trace` | Turns, tool calls (args, results, errors, durations), Pi retries, last stop reason |
+| `stopReason`, `errorMessage` | How the last assistant turn ended |
+| `usage` | Input/output/cache tokens and `costUsd`, summed over the run |
+| `model` | `provider/model-id` that ran |
+| `attempts` | Attempts including application retries |
+
+For logs, `trace: line => …` on the agent options receives one compact line per notable event (turns, tool calls, tool errors, provider retries). `formatEvent()` and `clip()` are exported for custom sinks.
+
+## Long-lived sessions
+
+Chat-style applications (one agent per browser session) get a few lifecycle helpers:
+
+- `agent.isBusy`: a prompt or run is in flight (Pi rejects a second prompt without `streamingBehavior`).
+- `agent.model` and `agent.messageCount`, without reaching into `agent.session`.
+- `eventBuffer: 200` on the agent options keeps recent events; `agent.subscribe(listener, { replay: true })` delivers them first, so a reconnecting client can catch up. `agent.recentEvents()` returns them.
+- `await agent.close()` aborts in-flight work, removes every listener added through `agent.subscribe()`, and disposes the session. It never throws.
+
+## Models and credentials
+
+`checkModel("anthropic/claude-haiku-5-5")` resolves the selector and checks credentials without building an agent or spending a model call, so a bad configuration fails before any work starts. `sharedModelRuntime()` returns one model runtime per process for applications that build many short-lived agents (for example a fresh agent per item); pass `{ refresh: true }` after a login.
+
+## Scripted agents for tests
+
+`scriptedAgent()` is a `PiAgent` backed by a script instead of a model. It calls the real tools' `execute()`, emits the same session events, and honours limits, retries, and output tools, so application code can be tested deterministically and run offline:
+
+```ts
+import { scriptedAgent } from "@haseebeqx/pi-agent-lib";
+
+const agent = scriptedAgent({
+  tools: [judgment.tool],
+  script: [
+    [{ text: "I forgot the tool." }],                                  // run 1
+    [{ tool: "submit_judgment", args: { status: "cited" } }],          // run 2 (the nudge)
+  ],
+});
+const { output } = await agent.runForOutput("judge", judgment);
+assert.equal(agent.prompts.length, 2);
+```
+
+Steps are `{ tool, args }`, `{ text }`, `{ providerError }` (a provider-error stop), `{ throws }` (a failing prompt), and `{ stall: true }` (waits until aborted, for timeouts). `script` may also be a function of `{ prompt, runIndex }`.
+
 ## Test and validate agents
 
 `runAgentEvals()` runs black-box cases against a fresh agent each time, captures Pi tool/turn/retry traces, and separates agent failures from validation failures. Repeated runs and pass-rate thresholds make nondeterministic behavior explicit instead of hiding it in a single green run.
@@ -278,5 +383,6 @@ The library focuses on:
 - shared model runtime and model selection
 - event subscription and useful run results
 - shared multi-agent defaults and cleanup
+- structured output, run limits, application retries, and scripted test agents
 
 Deployment, TUI integration, and multi-agent supervision remain outside the package until real applications demonstrate a repeated need. The evaluation API stays intentionally runner-agnostic: sandbox and fixture ownership belong to the application.

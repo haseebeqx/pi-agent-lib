@@ -6,7 +6,7 @@ import {
   type SettingsManager,
   type Skill,
 } from "@earendil-works/pi-coding-agent";
-import type { CodingResources } from "./types.js";
+import type { CodingResources, IsolatedResources } from "./types.js";
 
 /**
  * Create a reproducible Pi resource loader. It never discovers user-global or
@@ -25,6 +25,49 @@ export function isolatedResourceLoader(instructions: string, skills: Skill[] = [
     getAppendSystemPromptSources: () => [],
     extendResources: () => {},
     reload: async () => {},
+  };
+}
+
+/**
+ * Create an isolated resource loader that loads explicitly supplied extensions
+ * only. It never discovers user-global or repository-local extensions, prompts,
+ * themes, context files, or skills.
+ */
+export async function isolatedResourceLoaderWithExtensions(options: {
+  cwd: string;
+  instructions: string;
+  skills?: Skill[];
+  agentDir?: string;
+  settingsManager: SettingsManager;
+  resources: IsolatedResources;
+}): Promise<ResourceLoader> {
+  const { resources } = options;
+  const base = new DefaultResourceLoader({
+    cwd: options.cwd,
+    agentDir: options.agentDir ?? getAgentDir(),
+    settingsManager: options.settingsManager,
+    additionalExtensionPaths: resources.extensionPaths,
+    extensionFactories: resources.extensionFactories,
+    noExtensions: true,
+    noSkills: true,
+    noPromptTemplates: true,
+    noThemes: true,
+    noContextFiles: true,
+  });
+  await base.reload();
+  const skills = options.skills ?? [];
+  return {
+    getExtensions: () => base.getExtensions(),
+    getSkills: () => ({ skills, diagnostics: [] }),
+    getPrompts: () => base.getPrompts(),
+    getThemes: () => base.getThemes(),
+    getAgentsFiles: () => base.getAgentsFiles(),
+    getSystemPrompt: () => options.instructions,
+    getSystemPromptSource: () => undefined,
+    getAppendSystemPrompt: () => [],
+    getAppendSystemPromptSources: () => [],
+    extendResources: paths => base.extendResources(paths),
+    reload: reloadOptions => base.reload(reloadOptions),
   };
 }
 

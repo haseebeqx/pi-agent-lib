@@ -28,12 +28,13 @@ export type {
   ValidationOutcome,
   ValidationResult,
 } from "./evaluation.js";
-export { codingResourceLoader, isolatedResourceLoader } from "./resource-loader.js";
+export { codingResourceLoader, isolatedResourceLoader, isolatedResourceLoaderWithExtensions } from "./resource-loader.js";
 export type {
   AgentOptions,
   AgentSessionEvent,
   CodingResources,
   CoreToolName,
+  IsolatedResources,
   ModelRuntime,
   PromptOptions,
   RunResult,

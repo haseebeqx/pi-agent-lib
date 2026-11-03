@@ -27,6 +27,15 @@ export interface CodingResources {
   noContextFiles?: boolean;
 }
 
+export interface IsolatedResources {
+  /** Inline Pi extensions loaded for isolated agents (no discovery). */
+  extensionFactories?: InlineExtension[];
+  /** Explicit extension file paths loaded for isolated agents (no discovery). */
+  extensionPaths?: string[];
+  /** Tool names or `*` patterns of extension-registered tools to enable. */
+  extensionTools?: string[];
+}
+
 export interface AgentOptions {
   /** Name used in traces and diagnostics. */
   name?: string;
@@ -46,6 +55,8 @@ export interface AgentOptions {
   skills?: Skill[];
   /** Normal Pi resource discovery options for coding mode. */
   resources?: CodingResources;
+  /** Explicit extensions and tool enablement for isolated mode only (coding mode already has `resources`). */
+  isolatedResources?: IsolatedResources;
   /** Fully custom Pi resource loader. Takes precedence over mode-based resource construction. */
   resourceLoader?: ResourceLoader;
   /** Pi settings manager. Coding mode otherwise loads project/global settings. */

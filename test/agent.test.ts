@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { PiAgent } from "../src/agent.js";
+import { createAgent, PiAgent } from "../src/agent.js";
 
 test("PiAgent returns text and messages from a run", async () => {
   const listeners = new Set<(event: any) => void>();
@@ -28,4 +28,39 @@ test("PiAgent returns text and messages from a run", async () => {
   assert.equal(second.messages.length, 1);
   agent.dispose();
   assert.throws(() => agent.prompt("again"), /has been disposed/);
+});
+
+test("isolated agent activates extension-registered tools only when named in extensionTools", async () => {
+  const factory = (toolName: string) => (pi: any) => {
+    pi.registerTool({
+      name: toolName,
+      label: toolName,
+      description: "test tool",
+      parameters: {},
+      execute: async () => ({ content: [{ type: "text", text: "ok" }] }),
+    });
+  };
+
+  const enabled = await createAgent({
+    instructions: "Test agent.",
+    isolatedResources: {
+      extensionFactories: [factory("probe_tool")],
+      extensionTools: ["probe_tool"],
+    },
+  });
+  assert.ok(enabled.session.getActiveToolNames().includes("probe_tool"));
+  enabled.dispose();
+
+  const unlisted = await createAgent({
+    instructions: "Test agent.",
+    isolatedResources: {
+      extensionFactories: [factory("probe_tool")],
+    },
+  });
+  assert.ok(!unlisted.session.getActiveToolNames().includes("probe_tool"));
+  unlisted.dispose();
+
+  const plain = await createAgent({ instructions: "Test agent." });
+  assert.deepEqual(plain.session.getActiveToolNames(), []);
+  plain.dispose();
 });

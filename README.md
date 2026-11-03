@@ -250,6 +250,19 @@ const researcher = await isolatedAgent({
 
 You can also select behavior with `mode: "coding" | "isolated"`.
 
+Load explicit Pi extensions into isolated agents with `isolatedResources`. Nothing is discovered, and extension-registered tools stay inactive unless their names (or `*` patterns) are listed in `extensionTools`:
+
+```ts
+const coder = await isolatedAgent({
+  instructions: "Apply the lint rules.",
+  isolatedResources: {
+    extensionFactories: [lintExtension],
+    extensionPaths: ["./extensions/report.ts"],
+    extensionTools: ["lint_check", "report*"],
+  },
+});
+```
+
 ## Existing Pi applications
 
 `PiAgent` intentionally provides `prompt()`, `subscribe()`, `abort()`, and `dispose()` so existing Pi SDK code can adopt the library incrementally. The underlying session remains available as `agent.session` as an escape hatch.

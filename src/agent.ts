@@ -8,7 +8,7 @@ import {
   type PromptOptions,
 } from "@earendil-works/pi-coding-agent";
 import { resolveModel } from "./model.js";
-import { codingResourceLoader, isolatedResourceLoader } from "./resource-loader.js";
+import { codingResourceLoader, isolatedResourceLoader, isolatedResourceLoaderWithExtensions } from "./resource-loader.js";
 import type { AgentOptions, RunResult } from "./types.js";
 
 /** A small lifecycle-safe wrapper around one Pi AgentSession. */
@@ -76,6 +76,7 @@ export async function createAgent(options: AgentOptions): Promise<PiAgent> {
     const retries = options.retries ?? 3;
     settingsManager.applyOverrides({ retry: { enabled: retries > 0, maxRetries: retries } });
   }
+  const isolatedResources = mode === "isolated" ? options.isolatedResources : undefined;
   const resourceLoader = options.resourceLoader ?? (mode === "coding"
     ? await codingResourceLoader({
         cwd,
@@ -85,10 +86,20 @@ export async function createAgent(options: AgentOptions): Promise<PiAgent> {
         resources: options.resources,
         skills: options.skills,
       })
-    : isolatedResourceLoader(options.instructions, options.skills));
+    : isolatedResources && (isolatedResources.extensionFactories?.length || isolatedResources.extensionPaths?.length)
+      ? await isolatedResourceLoaderWithExtensions({
+          cwd,
+          instructions: options.instructions,
+          skills: options.skills,
+          agentDir: options.agentDir,
+          settingsManager,
+          resources: isolatedResources,
+        })
+      : isolatedResourceLoader(options.instructions, options.skills));
+  const extensionTools = mode === "isolated" ? (options.isolatedResources?.extensionTools ?? []) : [];
   const selectedTools = options.coreTools === undefined && mode === "coding"
     ? undefined
-    : [...(options.coreTools ?? []), ...customTools.map(tool => tool.name)];
+    : [...(options.coreTools ?? []), ...customTools.map(tool => tool.name), ...extensionTools];
 
   const { session } = await createAgentSession({
     cwd,

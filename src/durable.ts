@@ -4,12 +4,12 @@ import {
   AssistantEntry,
   createRegistry,
   Harness,
-  watchEvents,
   type AgentChange,
   type Conversation,
   type ConversationAbortOptions,
   type HarnessOptions,
   type InputSubmissionDraft,
+  type ConversationWatch,
   type SettledSubmissionRecord,
   type Storage,
   type Submission,
@@ -97,10 +97,10 @@ export class DurableAgent {
     await this.run(text, options);
   }
 
-  /** Native durable event stream, not AgentSessionEvent. Caller owns stopping the stream. */
-  watchEvents(context: Context = BACKGROUND_CONTEXT) {
+  /** Native durable conversation watch, not AgentSessionEvent. Caller owns stopping it. */
+  async watchEvents(context: Context = BACKGROUND_CONTEXT): Promise<ConversationWatch> {
     this.assertActive();
-    return watchEvents(this.harness, this.conversation.id, context);
+    return this.conversation.watch(context);
   }
 
   abort(context: Context = BACKGROUND_CONTEXT, options?: ConversationAbortOptions): Promise<void> {

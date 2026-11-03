@@ -5,9 +5,12 @@ import { join } from "node:path";
 import test from "node:test";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import {
-  createAssistantMessageEventStream,
+  createModels,
+  fauxAssistantMessage,
+  fauxProvider,
+  fauxText,
+  fauxThinking,
   type AssistantMessage,
-  type Model,
 } from "@earendil-works/pi-ai";
 import { AssistantEntry, MemoryStorage, type Conversation, type Harness } from "@earendil-works/pi-durable";
 import { openNodeJsonlStorage } from "@earendil-works/pi-durable/storage/jsonl/node";
@@ -16,62 +19,45 @@ import {
   durableAgent,
   DurableAgent,
   DurableRunError,
-  type DurableAgentOptions,
 } from "../src/durable.js";
 
 const context = BACKGROUND_CONTEXT;
 const modelRef = { provider: "test", modelId: "offline" };
-const model: Model<"openai-completions"> = {
-  id: modelRef.modelId,
-  provider: modelRef.provider,
-  name: "Offline test model",
-  api: "openai-completions",
-  baseUrl: "http://unused.invalid",
-  input: ["text"],
-  reasoning: false,
-  contextWindow: 128_000,
-  maxTokens: 1024,
-  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-};
 
-// Implement only the Models methods used by durable generation. All scheduling,
-// transactions, entries and receipts below still use the real Harness/storage.
+// Offline pi-ai models: a faux provider registered on a real Models collection.
+// All scheduling, transactions, entries and receipts below still use the real Harness/storage.
 function fakeModels(stopReason: "stop" | "error" = "stop") {
   const answers: AssistantMessage[] = [];
-  const methods: Pick<DurableAgentOptions["models"], "getModel" | "streamSimple"> = {
-    getModel(provider, id) {
-      return provider === modelRef.provider && id === modelRef.modelId ? model : undefined;
-    },
-    streamSimple() {
-      const number = answers.length + 1;
-      const message: AssistantMessage = {
-        role: "assistant",
-        content: [
-          { type: "thinking", thinking: "not answer text" },
-          { type: "text", text: `answer ${number}` },
-          { type: "text", text: "!" },
-        ],
-        api: model.api,
-        provider: model.provider,
-        model: model.id,
-        usage: {
-          input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2,
-          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-        },
-        stopReason,
-        ...(stopReason === "error" ? { errorMessage: "offline failure" } : {}),
-        timestamp: Date.now(),
-      };
-      answers.push(message);
-      const events = createAssistantMessageEventStream();
-      if (stopReason === "error") events.push({ type: "error", reason: "error", error: message });
-      else events.push({ type: "done", reason: "stop", message });
-      events.end();
-      return events;
-    },
+  const faux = fauxProvider({ provider: modelRef.provider, models: [{ id: modelRef.modelId }] });
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const next = () => {
+    const number = answers.length + 1;
+    const message = fauxAssistantMessage(
+      [
+        fauxThinking("not answer text"),
+        fauxText(`answer ${number}`),
+        fauxText("!"),
+      ],
+      stopReason === "error" ? { stopReason, errorMessage: "offline failure" } : {},
+    );
+    answers.push(message);
+    faux.appendResponses([message]);
+    return message;
   };
-  return { models: methods as DurableAgentOptions["models"], answers };
+  return {
+    models,
+    next,
+    // Model invocations actually made, not responses queued.
+    calls: () => faux.state.callCount,
+  };
 }
+
+const answerContent = (n: number) => [
+  { type: "thinking" as const, thinking: "not answer text" },
+  { type: "text" as const, text: `answer ${n}` },
+  { type: "text" as const, text: "!" },
+];
 
 const testOptions = { timeout: 10_000 };
 
@@ -82,9 +68,11 @@ test("durable run returns its answer text, answer-only messages and durable rece
   });
   t.after(() => agent.close());
   assert.equal(agent.name, "offline");
+  fake.next();
   const result = await agent.run("first", { requestId: "first" });
   assert.equal(result.text, "answer 1!");
-  assert.deepEqual(result.messages, [fake.answers[0]]);
+  assert.equal(result.messages.length, 1);
+  assert.deepEqual(result.messages[0].content, answerContent(1));
   assert.ok(Number.isFinite(result.durationMs) && result.durationMs >= 0);
   assert.equal(result.submission.status, "done");
   assert.equal(result.submission.type, "input");
@@ -95,15 +83,17 @@ test("durable run returns its answer text, answer-only messages and durable rece
   const stored = await agent.conversation.commit(tx => tx.entry(AssistantEntry, result.submission.answer!), context);
   assert.deepEqual(result.messages, stored?.model);
 
+  fake.next();
   const second = await agent.run("second");
   assert.equal(second.text, "answer 2!");
-  assert.deepEqual(second.messages, [fake.answers[1]]);
+  assert.equal(second.messages.length, 1);
+  assert.deepEqual(second.messages[0].content, answerContent(2));
   // A retry of an older receipt must not read the newest transcript answer.
   const replay = await agent.run("first", { requestId: "first" });
   assert.deepEqual(replay.submission, result.submission);
   assert.deepEqual(replay.messages, result.messages);
   assert.equal(replay.text, result.text);
-  assert.equal(fake.answers.length, 2);
+  assert.equal(fake.calls(), 2);
 });
 
 test("requestId deduplicates admission before settlement and prompt awaits an answer", testOptions, async t => {
@@ -117,12 +107,14 @@ test("requestId deduplicates admission before settlement and prompt awaits an an
   const first = await agent.submit("once", { requestId: "same" });
   const duplicate = await agent.submit("once", { requestId: "same" });
   assert.equal(first.id, duplicate.id);
-  assert.equal(fake.answers.length, 0);
+  assert.equal(fake.calls(), 0);
+  fake.next();
   agent.harness.resume();
   assert.deepEqual(await first.wait(context), await duplicate.wait(context));
-  assert.equal(fake.answers.length, 1);
+  assert.equal(fake.calls(), 1);
+  fake.next();
   assert.equal(await agent.prompt("next"), undefined);
-  assert.equal(fake.answers.length, 2);
+  assert.equal(fake.calls(), 2);
 });
 
 test("unanswered runs throw DurableRunError containing the stored receipt", testOptions, async t => {
@@ -132,6 +124,7 @@ test("unanswered runs throw DurableRunError containing the stored receipt", test
     settings: { retry: { enabled: false }, compaction: { enabled: false } },
   });
   t.after(() => agent.close());
+  fake.next();
   let failure: DurableRunError | undefined;
   await assert.rejects(agent.run("fail", { requestId: "failure" }), error => {
     assert.ok(error instanceof DurableRunError);
@@ -147,7 +140,7 @@ test("unanswered runs throw DurableRunError containing the stored receipt", test
   const submission = await agent.submit("fail", { requestId: "failure" });
   assert.deepEqual(await submission.wait(context), failure!.submission);
   await assert.rejects(agent.prompt("fail", { requestId: "failure" }), DurableRunError);
-  assert.equal(fake.answers.length, 1);
+  assert.equal(fake.calls(), 1);
 });
 
 test("JSONL reopen preserves configuration and pending work, with opt-in/default resume", testOptions, async t => {
@@ -165,7 +158,7 @@ test("JSONL reopen preserves configuration and pending work, with opt-in/default
   assert.notEqual(pendingRecord.status, "done");
   const conversationId = initial.conversation.id;
   await initial.close();
-  assert.equal(fake.answers.length, 0);
+  assert.equal(fake.calls(), 0);
 
   const paused = await createDurableAgent({
     storage: await openNodeJsonlStorage(directory, context), models: fake.models, resume: false,
@@ -180,7 +173,7 @@ test("JSONL reopen preserves configuration and pending work, with opt-in/default
   const restored = await paused.submit("survives close", { requestId: "persisted-input" });
   assert.equal(restored.id, pending.id);
   assert.deepEqual(await restored.status(context), pendingRecord);
-  assert.equal(fake.answers.length, 0);
+  assert.equal(fake.calls(), 0);
   await paused.close();
 
   // Omitting resume resumes unfinished work without a fresh input admission.
@@ -190,14 +183,15 @@ test("JSONL reopen preserves configuration and pending work, with opt-in/default
   t.after(() => reopened.close());
   const resumedSubmission = await reopened.harness.submission(pending.id, context);
   assert.ok(resumedSubmission);
+  fake.next();
   const receipt = await resumedSubmission.wait(context);
   assert.equal(receipt.status, "done");
-  assert.equal(fake.answers.length, 1);
+  assert.equal(fake.calls(), 1);
   const replay = await reopened.run("survives close", { requestId: "persisted-input" });
   assert.equal(replay.submission.id, pending.id);
   assert.equal(replay.submission.status, "done");
   assert.equal(replay.text, "answer 1!");
-  assert.equal(fake.answers.length, 1);
+  assert.equal(fake.calls(), 1);
   const closing = reopened.close();
   assert.equal(reopened.close(), closing);
   assert.equal(reopened.dispose(), closing);
@@ -205,7 +199,7 @@ test("JSONL reopen preserves configuration and pending work, with opt-in/default
   assert.throws(() => reopened.submit("late"), /has been disposed/);
   await assert.rejects(reopened.run("late"), /has been disposed/);
   await assert.rejects(reopened.prompt("late"), /has been disposed/);
-  assert.throws(() => reopened.watchEvents(), /has been disposed/);
+  await assert.rejects(reopened.watchEvents(), /has been disposed/);
   await reopened.abort();
 });
 
@@ -239,7 +233,7 @@ test("close/dispose share asynchronous completion and guard immediately while cl
   await Promise.resolve();
   assert.equal(settled, false);
   assert.throws(() => agent.submit("late"), /Agent closing has been disposed/);
-  assert.throws(() => agent.watchEvents(), /has been disposed/);
+  await assert.rejects(agent.watchEvents(), /has been disposed/);
   await assert.rejects(agent.run("late"), /has been disposed/);
   await assert.rejects(agent.prompt("late"), /has been disposed/);
   finish();

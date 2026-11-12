@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createAgent, PiAgent } from "../src/agent.js";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createAgent, PiAgent, isolatedSettingsManager } from "../src/agent.js";
 
 test("PiAgent returns text and messages from a run", async () => {
   const listeners = new Set<(event: any) => void>();
@@ -63,4 +66,38 @@ test("isolated agent activates extension-registered tools only when named in ext
   const plain = await createAgent({ instructions: "Test agent." });
   assert.deepEqual(plain.session.getActiveToolNames(), []);
   plain.dispose();
+});
+
+test("isolatedSettingsManager inherits the user's saved default model from global settings", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pi-agent-lib-settings-"));
+  const agentDir = join(dir, "agent");
+  const cwd = join(dir, "cwd");
+  mkdirSync(agentDir);
+  mkdirSync(join(cwd, ".pi"), { recursive: true });
+  writeFileSync(
+    join(agentDir, "settings.json"),
+    JSON.stringify({ defaultProvider: "prov", defaultModel: "model-a" }),
+  );
+  // A project setting with a different default must not leak into the
+  // isolated agent: only the user's global default is inherited.
+  writeFileSync(
+    join(cwd, ".pi", "settings.json"),
+    JSON.stringify({ defaultProvider: "prov", defaultModel: "model-b" }),
+  );
+
+  const settings = isolatedSettingsManager(cwd, agentDir);
+  assert.equal(settings.getDefaultProvider(), "prov");
+  assert.equal(settings.getDefaultModel(), "model-a");
+});
+
+test("isolatedSettingsManager has no default model when the user has none", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pi-agent-lib-settings-"));
+  const agentDir = join(dir, "agent");
+  const cwd = join(dir, "cwd");
+  mkdirSync(agentDir);
+  mkdirSync(cwd);
+
+  const settings = isolatedSettingsManager(cwd, agentDir);
+  assert.equal(settings.getDefaultProvider(), undefined);
+  assert.equal(settings.getDefaultModel(), undefined);
 });

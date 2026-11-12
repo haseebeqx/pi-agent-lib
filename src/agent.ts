@@ -258,6 +258,31 @@ export function modelLabel(model: any): string | undefined {
   return model.provider ? `${model.provider}/${id}` : String(id);
 }
 
+/**
+ * Settings for isolated agents: in-memory, so no project settings, tools or
+ * session state leak into the agent - but the default model saved in the
+ * user's own Pi settings is inherited, so an agent built without a modelId
+ * runs the same model Pi itself would pick. Without this the session falls
+ * back to the first model with valid credentials, which may be a billed API
+ * model the user no longer uses.
+ */
+export function isolatedSettingsManager(cwd: string, agentDir?: string): SettingsManager {
+  const settings = SettingsManager.inMemory();
+  try {
+    const user = SettingsManager.create(cwd, agentDir);
+    const global = user.getGlobalSettings();
+    const overrides: Record<string, string | undefined> = {};
+    if (global.defaultProvider) overrides.defaultProvider = global.defaultProvider;
+    if (global.defaultModel) overrides.defaultModel = global.defaultModel;
+    if (Object.keys(overrides).length > 0) {
+      settings.applyOverrides(overrides as Parameters<SettingsManager["applyOverrides"]>[0]);
+    }
+  } catch {
+    // unreadable settings: leave the session's own model fallback in place
+  }
+  return settings;
+}
+
 export async function createAgent(options: AgentOptions): Promise<PiAgent> {
   const cwd = options.cwd ?? process.cwd();
   const runtime = options.runtime ?? await ModelRuntime.create();
@@ -266,7 +291,7 @@ export async function createAgent(options: AgentOptions): Promise<PiAgent> {
   const mode = options.mode ?? "isolated";
   const settingsManager = options.settingsManager ?? (mode === "coding"
     ? SettingsManager.create(cwd, options.agentDir)
-    : SettingsManager.inMemory());
+    : isolatedSettingsManager(cwd, options.agentDir));
   if (options.retries !== undefined || mode === "isolated") {
     const retries = options.retries ?? 3;
     settingsManager.applyOverrides({ retry: { enabled: retries > 0, maxRetries: retries } });
